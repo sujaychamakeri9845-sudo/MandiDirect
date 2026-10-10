@@ -1,122 +1,267 @@
 import React, { useState, useEffect } from 'react';
-import { Leaf, LogOut } from 'lucide-react';
+import { Leaf, LogOut, Package, CheckCircle, Clock, PlusCircle, TrendingUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+const API = 'https://mandi-direct-9der.vercel.app';
+
+function timeAgo(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+const STATUS_STYLE = {
+  available: 'bg-green-100 text-green-700',
+  pending:   'bg-yellow-100 text-yellow-700',
+  sold:      'bg-gray-100 text-gray-500',
+};
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const [user, setUser]         = useState(null);
   const [requests, setRequests] = useState([]);
-  const [view, setView] = useState('add');
-  const [formData, setFormData] = useState({ item_name: '', quantity: '', current_price: '', original_price: '', pickup_location: '' });
+  const [myItems, setMyItems]   = useState([]);
+  const [view, setView]         = useState('add');
+  const [submitting, setSubmitting] = useState(false);
+  const [formData, setFormData] = useState({
+    item_name: '', quantity: '', current_price: '', original_price: '', pickup_location: '',
+  });
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (!storedUser) { navigate('/login?role=seller'); return; }
-    const parsedUser = JSON.parse(storedUser);
-    setUser(parsedUser);
-    fetchRequests(parsedUser.id);
+    const stored = localStorage.getItem('user');
+    if (!stored) { navigate('/login?role=seller'); return; }
+    const u = JSON.parse(stored);
+    setUser(u);
+    fetchRequests(u.id);
+    fetchMyItems(u.id);
   }, [navigate]);
 
   const fetchRequests = async (sellerId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/requests/seller/${sellerId}`);
+      const res = await fetch(`${API}/api/requests/seller/${sellerId}`);
       if (res.ok) setRequests(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchMyItems = async (sellerId) => {
+    try {
+      const res = await fetch(`${API}/api/surplus/seller/${sellerId}`);
+      if (res.ok) setMyItems(await res.json());
     } catch (e) { console.error(e); }
   };
 
   const handlePost = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
-      const res = await fetch('http://localhost:5000/api/surplus', {
+      const res = await fetch(`${API}/api/surplus`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, seller_id: user.id }),
       });
       if (res.ok) {
-        alert('Item posted successfully!');
+        alert('✅ Item posted to marketplace!');
         setFormData({ item_name: '', quantity: '', current_price: '', original_price: '', pickup_location: '' });
+        fetchMyItems(user.id);
       }
     } catch (e) { console.error(e); }
+    setSubmitting(false);
   };
 
   const handleAccept = async (reqId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/requests/${reqId}/accept`, { method: 'PUT' });
-      if (res.ok) fetchRequests(user.id);
+      const res = await fetch(`${API}/api/requests/${reqId}/accept`, { method: 'PUT' });
+      if (res.ok) {
+        fetchRequests(user.id);
+        fetchMyItems(user.id);
+      }
     } catch (e) { console.error(e); }
   };
 
-  const logout = () => {
-    localStorage.removeItem('user');
-    navigate('/');
-  };
+  const logout = () => { localStorage.removeItem('user'); navigate('/'); };
+
+  const pendingCount = requests.filter(r => r.request_status === 'pending').length;
 
   if (!user) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
+      {/* Header */}
       <header className="bg-green-600 text-white p-4 shadow-md sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <Leaf size={28} />
-            <h1 className="text-2xl font-bold tracking-tight">Seller Dashboard</h1>
+        <div className="max-w-5xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Leaf size={26} />
+            <div>
+              <h1 className="text-xl font-bold leading-none">MandiDirect</h1>
+              <p className="text-green-200 text-xs">Seller Portal</p>
+            </div>
           </div>
-          <div className="flex gap-4 items-center">
-            <span className="font-medium text-green-50">Welcome, {user.username}</span>
-            <button onClick={logout} className="flex items-center text-green-100 hover:text-white transition-colors"><LogOut size={20} className="mr-1"/> Logout</button>
+          <div className="flex items-center gap-4">
+            <span className="text-green-100 text-sm hidden sm:block">👋 {user.username}</span>
+            <button onClick={logout} className="flex items-center gap-1 text-green-100 hover:text-white text-sm">
+              <LogOut size={16} /> Logout
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 mt-6">
-        <div className="flex gap-4 mb-6 border-b pb-2">
-          <button onClick={() => setView('add')} className={`text-lg font-semibold ${view === 'add' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500 hover:text-gray-700'}`}>Post Item</button>
-          <button onClick={() => setView('logs')} className={`text-lg font-semibold ${view === 'logs' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500 hover:text-gray-700'}`}>Incoming Requests (Logs)</button>
+      <div className="max-w-5xl mx-auto px-4 mt-4">
+        {/* Stats Row */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {[
+            { icon: <Package size={20} />, label: 'Total Listed', value: myItems.length, color: 'text-blue-600 bg-blue-50' },
+            { icon: <Clock size={20} />, label: 'Pending Requests', value: pendingCount, color: 'text-yellow-600 bg-yellow-50' },
+            { icon: <CheckCircle size={20} />, label: 'Deals Closed', value: requests.filter(r => r.request_status === 'accepted').length, color: 'text-green-600 bg-green-50' },
+          ].map(s => (
+            <div key={s.label} className="bg-white rounded-xl border p-4 flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${s.color}`}>{s.icon}</div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+                <p className="text-xs text-gray-500">{s.label}</p>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {view === 'add' ? (
-          <div className="max-w-md bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <h2 className="text-xl font-bold mb-4">List New Produce</h2>
+        {/* Tabs */}
+        <div className="flex gap-1 bg-gray-200 rounded-xl p-1 w-fit mb-6">
+          {[
+            ['add', '➕ Post Item'],
+            ['listings', '📦 My Listings'],
+            ['requests', `📬 Requests${pendingCount > 0 ? ` (${pendingCount})` : ''}`],
+          ].map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => { setView(v); if (v === 'requests') fetchRequests(user.id); if (v === 'listings') fetchMyItems(user.id); }}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === v ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Post Item Form */}
+        {view === 'add' && (
+          <div className="max-w-lg bg-white p-6 rounded-xl shadow-sm border">
+            <h2 className="text-lg font-bold mb-5 flex items-center gap-2 text-gray-800">
+              <PlusCircle className="text-green-600" size={22} /> List New Surplus Produce
+            </h2>
             <form onSubmit={handlePost} className="space-y-4">
-              <input type="text" name="item_name" value={formData.item_name} onChange={e=>setFormData({...formData, item_name: e.target.value})} placeholder="Item Description" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-green-500 outline-none" required />
-              <input type="text" name="quantity" value={formData.quantity} onChange={e=>setFormData({...formData, quantity: e.target.value})} placeholder="Quantity (e.g. 50kg)" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-green-500 outline-none" required />
-              <input type="number" name="current_price" value={formData.current_price} onChange={e=>setFormData({...formData, current_price: e.target.value})} placeholder="Clearance Price (₹)" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-green-500 outline-none" required />
-              <input type="text" name="pickup_location" value={formData.pickup_location} onChange={e=>setFormData({...formData, pickup_location: e.target.value})} placeholder="Pickup Location" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-green-500 outline-none" required />
-              <button type="submit" className="w-full bg-green-600 text-white font-bold p-3 rounded hover:bg-green-700 transition-colors">Post Immediately</button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Item Description</label>
+                <input type="text" value={formData.item_name} onChange={e => setFormData({...formData, item_name: e.target.value})} placeholder="e.g. Overripe Tomatoes, 50kg" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                <input type="text" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} placeholder="e.g. 50 kg / 10 crates" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Clearance Price (₹)</label>
+                  <input type="number" value={formData.current_price} onChange={e => setFormData({...formData, current_price: e.target.value})} placeholder="₹" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Original Price (opt)</label>
+                  <input type="number" value={formData.original_price} onChange={e => setFormData({...formData, original_price: e.target.value})} placeholder="₹" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pick-up Location</label>
+                <input type="text" value={formData.pickup_location} onChange={e => setFormData({...formData, pickup_location: e.target.value})} placeholder="e.g. Azadpur Mandi, Gate 2" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" required />
+              </div>
+              <button type="submit" disabled={submitting} className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-lg transition-colors">
+                {submitting ? 'Posting...' : '⚡ Post Immediately'}
+              </button>
             </form>
           </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 border-b text-gray-600">
-                <tr>
-                  <th className="p-4 font-semibold">Item</th>
-                  <th className="p-4 font-semibold">Price</th>
-                  <th className="p-4 font-semibold">Buyer</th>
-                  <th className="p-4 font-semibold">Action/Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map(req => (
-                  <tr key={req.request_id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="p-4 font-medium text-gray-900">{req.item_name}</td>
-                    <td className="p-4 text-gray-600">₹{req.current_price}</td>
-                    <td className="p-4 text-gray-600">{req.buyer_name}</td>
-                    <td className="p-4">
-                      {req.request_status === 'pending' ? (
-                        <button onClick={() => handleAccept(req.request_id)} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-green-700 transition-colors">Accept Request</button>
-                      ) : (
-                        <span className="text-green-700 font-bold bg-green-50 px-3 py-1 rounded-full">ACCEPTED</span>
-                      )}
-                    </td>
+        )}
+
+        {/* My Listings */}
+        {view === 'listings' && (
+          <div>
+            <div className="mb-3 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-700">My Posted Items</h2>
+              <button onClick={() => fetchMyItems(user.id)} className="text-green-600 text-sm font-medium hover:text-green-700">🔄 Refresh</button>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    {['Item', 'Qty', 'Price', 'Location', 'Posted', 'Status'].map(h => (
+                      <th key={h} className="px-4 py-3 font-semibold text-gray-600">{h}</th>
+                    ))}
                   </tr>
-                ))}
-                {requests.length === 0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 py-8">No incoming requests yet.</td></tr>}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {myItems.length === 0 ? (
+                    <tr><td colSpan="6" className="text-center py-12 text-gray-400">No items posted yet. Go to "Post Item" to list your first lot!</td></tr>
+                  ) : myItems.map(item => (
+                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{item.item_name}</td>
+                      <td className="px-4 py-3 text-gray-600">{item.quantity}</td>
+                      <td className="px-4 py-3 text-green-600 font-semibold">₹{item.current_price}</td>
+                      <td className="px-4 py-3 text-gray-500 max-w-[140px] truncate">{item.pickup_location}</td>
+                      <td className="px-4 py-3 text-gray-400">{timeAgo(item.created_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${STATUS_STYLE[item.status] || 'bg-gray-100 text-gray-500'}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
-      </main>
+
+        {/* Incoming Requests */}
+        {view === 'requests' && (
+          <div>
+            <div className="mb-3 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-700">Incoming Buyer Requests</h2>
+              <button onClick={() => fetchRequests(user.id)} className="text-green-600 text-sm font-medium hover:text-green-700">🔄 Refresh</button>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    {['Item', 'Price', 'Buyer', 'Requested', 'Action'].map(h => (
+                      <th key={h} className="px-4 py-3 font-semibold text-gray-600">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.length === 0 ? (
+                    <tr><td colSpan="5" className="text-center py-12 text-gray-400">No incoming requests yet.</td></tr>
+                  ) : requests.map(r => (
+                    <tr key={r.request_id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{r.item_name}</td>
+                      <td className="px-4 py-3 text-green-600 font-semibold">₹{r.current_price}</td>
+                      <td className="px-4 py-3 text-gray-600">{r.buyer_name}</td>
+                      <td className="px-4 py-3 text-gray-400">{timeAgo(r.created_at)}</td>
+                      <td className="px-4 py-3">
+                        {r.request_status === 'pending' ? (
+                          <button
+                            onClick={() => handleAccept(r.request_id)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            ✅ Accept
+                          </button>
+                        ) : (
+                          <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">ACCEPTED</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
